@@ -1,6 +1,6 @@
 #Diagnostic performance and clinical implications of rapid SARS-CoV-2 antigen testing in Mexico using real-world nationwide COVID-19 registry data
 #Data Analysis: Omar Yaxmehen Bello-Chavolla (oyaxbell@yahoo.com.mx); Neftali Eduardo Antonio-Villa (nefoantonio@hotmail.com)
-#Latest version of Analysis 01-Jan-2021
+#Latest version of Analysis 01-May-2021
 #Any question regarding analysis contact Omar Yaxmehen Bello-Chavolla
 
 #### Database management####
@@ -10,6 +10,7 @@ library(pROC);librafactor(covid, labels=c("SARS-CoV-2 (-), SARS-CoV-2 (+)"))ry(s
 library(ggstance); library(flextable); library(simPH); library(ggthemes); library(lme4); library(lmerTest); library(prismatic); library(readxl); library(zoo); library(OptimalCutpoints)
 library(ggstatsplot);library(Rmpfr);library(ggrepel)
 setwd("~/OneDrive - UNIVERSIDAD NACIONAL AUTÓNOMA DE MÉXICO/COVID - Antígeno")
+setwd("/Users/nefoantonio/UNIVERSIDAD NACIONAL AUTÓNOMA DE MÉXICO/OMAR YAXMEHEN BELLO CHAVOLLA - COVID - Antígeno")
 
 #file<-paste0(if(format(Sys.time(), "%H:%M:%S")>"19:00:00"){
 #  print(format(Sys.Date(),"%y%m%d"))
@@ -19,10 +20,12 @@ setwd("~/OneDrive - UNIVERSIDAD NACIONAL AUTÓNOMA DE MÉXICO/COVID - Antígeno"
 
 temp <- tempfile()
 #download.file("http://datosabiertos.salud.gob.mx/gobmx/salud/datos_abiertos/datos_abiertos_covid19.zip",temp)
-download.file("http://datosabiertos.salud.gob.mx/gobmx/salud/datos_abiertos/historicos/12/datos_abiertos_covid19_31.12.2020.zip",temp)
+#download.file("http://datosabiertos.salud.gob.mx/gobmx/salud/datos_abiertos/historicos/2021/04/datos_abiertos_covid19_30.04.2021.zip",temp)
 #covid <- read.csv(unz(temp, file),header=TRUE,sep = ",", encoding = "UTF-8")
-covid <- read.csv(unz(temp, "201231COVID19MEXICO.csv"),header=TRUE,sep = ",", encoding = "UTF-8")
-unlink(temp)
+#covid <- read.csv(unz(temp, "201231COVID19MEXICO.csv"),header=TRUE,sep = ",", encoding = "UTF-8")
+
+covid <- read.csv("210430COVID19MEXICO.csv",header=TRUE,sep = ",", encoding = "UTF-8") #NEAV
+
 
 covid$id<-paste0(str_pad(covid$ENTIDAD_RES, 2,pad = "0"),str_pad(covid$MUNICIPIO_RES,3, pad="0"))
 covid1<-covid[,c(14:15,18:30,32:35)]
@@ -104,12 +107,39 @@ pop_mun<-df_mx %>% filter(AÑO==2020)%>%group_by(ENTIDAD_UM)%>%summarise(pop=sum
 
 
 covid$muestra<-ifelse(covid$CLASIFICACION_FINAL==3, 1, 0)
+
 covid<-covid %>% left_join(pop_mun, by="ENTIDAD_UM")
 
 covid$muestra<-covid$TOMA_MUESTRA_ANTIGENO+2*covid$TOMA_MUESTRA_LAB
 covid$FECHA_INGRESO<-as.Date(covid$FECHA_INGRESO)
 covid$FECHA_SINTOMAS<-as.Date(covid$FECHA_SINTOMAS)
 covid$covid<-ifelse(covid$CLASIFICACION_FINAL==3, 1, 0)
+
+
+####STARD DIAGRAM####
+nrow(covid)
+table(covid$muestra,covid$CLASIFICACION_FINAL,useNA = "always")
+table(covid$muestra!=0)
+covid_elegible<-covid%>%filter(muestra!=0)
+table(is.na(covid_elegible$RESULTADO_ANTIGENO),is.na(covid_elegible$RESULTADO_LAB),useNA = "always")
+covid_elegible_both<-covid_elegible%>%filter(!is.na(RESULTADO_ANTIGENO))%>%filter(!is.na(RESULTADO_LAB))
+nrow(covid_elegible_both)
+table(covid_elegible_both$RESULTADO_ANTIGENO)
+table(covid_elegible_both[covid_elegible_both$RESULTADO_ANTIGENO==1,]$RESULTADO_LAB)
+table(covid_elegible_both[covid_elegible_both$RESULTADO_ANTIGENO==0,]$RESULTADO_LAB)
+
+covid_elegible_both_final<-covid_elegible_both%>%filter(RESULTADO_LAB<=2)
+nrow(covid_elegible_both_final)
+covid_elegible_both_final$resultado_final<-NULL;
+covid_elegible_both_final$resultado_final[covid_elegible_both_final$RESULTADO_ANTIGENO==0 & covid_elegible_both_final$RESULTADO_LAB==0]<-1
+covid_elegible_both_final$resultado_final[covid_elegible_both_final$RESULTADO_ANTIGENO==1 & covid_elegible_both_final$RESULTADO_LAB==0]<-2
+covid_elegible_both_final$resultado_final[covid_elegible_both_final$RESULTADO_ANTIGENO==0 & covid_elegible_both_final$RESULTADO_LAB==1]<-3
+covid_elegible_both_final$resultado_final[covid_elegible_both_final$RESULTADO_ANTIGENO==1 & covid_elegible_both_final$RESULTADO_LAB==1]<-4
+covid_elegible_both_final$resultado_final<-factor(covid_elegible_both_final$resultado_final, labels = c("True-Negative", "False-Positive",
+                                                                  "False-Negative","True-Positive"))
+
+table(covid_elegible_both_final$resultado_final,useNA = "always")
+
 #### Main table ####
 covid_pcr<-covid%>%filter(muestra==2)
 covid_ag<-covid%>%filter(muestra==1)
@@ -279,12 +309,28 @@ tests<-covid %>% filter(FECHA_SINTOMAS>"2020-11-05") %>%
 
 covid_tests<- covid %>% group_by(ENTIDAD_UM,) %>%
   summarise(tests=n(), pop=median(pop)) %>% 
-  mutate(rate1=(tests/pop)*100000, ENTIDAD_UM=as.factor(ENTIDAD_UM))
+  mutate(rate1=(tests/pop)*100000, ENTIDAD_UM=as.integer(ENTIDAD_UM))
 covid_tests$state<-c("AGS", "BCN", "BCS", "CAM", "CHP", "CHH", "COA","COL", 
                      "CMX", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", 
                      "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP",
                      "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC")
 covid$cdmx<-factor(ifelse(covid$ENTIDAD_UM==9,1 ,0), labels = c("Rest of Mexico", "Mexico City"))
+
+table(covid$RESULTADO_ANTIGENO)
+table(covid$RESULTADO_ANTIGENO,covid$RESULTADO_LAB)
+table(covid$muestra, covid$covid,covid$cdmx)
+table(covid$RESULTADO_LAB,covid$muestra)
+
+rates_covid_edos<-covid %>% filter(FECHA_SINTOMAS>"2020-11-05")%>%
+  group_by(ENTIDAD_UM) %>%
+  summarise(pruebas=sum(TOMA_MUESTRA_ANTIGENO), pop=median(pop))%>% 
+  mutate(rate=(pruebas/pop)*100000) %>%
+  left_join(covid_tests%>%dplyr::select(ENTIDAD_UM, state))%>%
+  mutate(state=as.factor(state))%>%
+  mutate(state=forcats::fct_reorder(state, rate))%>%
+  filter(rate>=1)
+
+head(rates_covid_edos)
 
 f1a<-covid %>% filter(FECHA_SINTOMAS>"2020-11-05")%>%
   group_by(ENTIDAD_UM) %>%
@@ -299,8 +345,8 @@ f1a<-covid %>% filter(FECHA_SINTOMAS>"2020-11-05")%>%
   coord_flip()+theme_bw()+labs(fill="Type of test")+
   ylab("Rapid antigen tests per 100,000 hab. (log scale)")+xlab("Mexican state")+
   scale_y_log10()
-
-f1b<-covid %>% group_by(FECHA_SINTOMAS, cdmx) %>%
+covid$FECHA_SINTOMAS
+f1b<-covid %>% group_by(FECHA_SINTOMAS, cdmx) %>% filter(FECHA_SINTOMAS>"2020-11-05") %>% 
   summarise(pcr=sum(TOMA_MUESTRA_LAB), antigeno=sum(TOMA_MUESTRA_ANTIGENO))%>%
   mutate(ratio=(antigeno/(pcr+antigeno))*100) %>% filter(antigeno!=0) %>% group_by(cdmx)%>%
   mutate(ratio2=rollmean(ratio, 7, fill=NA))%>% ungroup()%>%
@@ -312,8 +358,8 @@ covid$covid1<-factor(covid$covid, labels=c("SARS-CoV-2 (-)", "SARS-CoV-2 (+)"))
 covid$muestra1<-factor(covid$muestra, labels = c("Not tested", "Ag-T", "RT-PCR", "Both"))
 
 f1c<-covid %>% filter(CLASIFICACION_FINAL==3)%>%
-  mutate(test=factor(TOMA_MUESTRA_ANTIGENO, labels = c("RT-PCR", "Rapid test")))%>%
-  filter(FECHA_SINTOMAS>"2020-11-04") %>%
+  mutate(test=factor(TOMA_MUESTRA_ANTIGENO, labels = c("RT-PCR", "Rapid Ag test")))%>%
+  filter(FECHA_SINTOMAS>"2020-11-05") %>%
   ggplot(aes(x=FECHA_SINTOMAS, fill=test))+
   geom_histogram(col="black", binwidth = 1)+
   ylab("New confirmed COVID-19 cases")+
@@ -321,7 +367,7 @@ f1c<-covid %>% filter(CLASIFICACION_FINAL==3)%>%
   theme_classic()+facet_wrap(~cdmx, scales = "free")+
   geom_vline(xintercept = 5, size = 1, colour = "#FF3721",linetype = "dashed")+
   labs(fill="Test")+theme(legend.position="top")+scale_fill_jama()
-
+  
 f1top<-ggarrange(f1a, f1b, labels = LETTERS[1:2])
 fig1<-ggarrange(f1top,f1c, nrow = 2, ncol=1, labels = c("", "C"))
 
@@ -341,19 +387,25 @@ hist<-covid %>%filter(tiempo<30) %>%
   geom_vline(xintercept = 7, size = 1, colour = "#FF3721",linetype = "dashed")+
   labs(fill="Test")+theme(legend.position="top")+scale_fill_jama()
 
+ggsave(hist,filename = "Supplementary_Figure1.jpg", 
+       width = 25, 
+       height = 20,
+       units=c("cm"),
+       dpi = 300,
+       limitsize = FALSE)
+
 
 #### Diagnostic performance ####
-covid0<-covid %>% filter(muestra==3)
+covid1<-covid %>% filter(muestra==3 & RESULTADO_LAB<3)
 
-covid1<-covid %>% filter(RESULTADO_LAB<3 & !is.na(RESULTADO_ANTIGENO))
-nrow(covid0)
-caret::confusionMatrix(factor(covid1$RESULTADO_ANTIGENO),factor(covid1$RESULTADO_LAB))
+caret::confusionMatrix(factor(covid1$RESULTADO_LAB),factor(covid1$RESULTADO_ANTIGENO))
 k1<-vcd::Kappa(table(covid1$RESULTADO_LAB, covid1$RESULTADO_ANTIGENO))
 cbind(k1[1]$Unweighted[1], confint(k1))
 
 pROC::roc(covid1$RESULTADO_LAB, covid1$RESULTADO_ANTIGENO, ci=T)
 
 covid1$tiempo7<-ifelse(covid1$tiempo>7, 1, 0)
+covid1$year<-ifelse(lubridate::year(covid1$FECHA_SINTOMAS)==2021,1,0)
 
 p1 <- optimal.cutpoints(X = "RESULTADO_ANTIGENO", status = "RESULTADO_LAB", tag.healthy = 0, 
                         methods = "Youden", data = covid1, pop.prev = NULL, 
@@ -374,8 +426,11 @@ p5 <- optimal.cutpoints(X = "RESULTADO_ANTIGENO", status = "RESULTADO_LAB", tag.
 p6 <- optimal.cutpoints(X = "RESULTADO_ANTIGENO", status = "RESULTADO_LAB", tag.healthy = 0, 
                         methods = "Youden", data = covid1, pop.prev = NULL, categorical.cov = "tiempo7",
                         control = control.cutpoints(), ci.fit = TRUE, conf.level = 0.95, trace = FALSE)
+p7 <- optimal.cutpoints(X = "RESULTADO_ANTIGENO", status = "RESULTADO_LAB", tag.healthy = 0, 
+                        methods = "Youden", data = covid1, pop.prev = NULL, categorical.cov = "year",
+                        control = control.cutpoints(), ci.fit = TRUE, conf.level = 0.95, trace = FALSE)
 
-table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outpatient", "Inpatient", "No comorbidities", "≥1 comorbidity", "<60 years", "≥60 years", "<7d from onset", "≥7d from onset"),
+table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outpatient", "Inpatient", "No comorbidities", "≥1 comorbidity", "<60 years", "≥60 years", "<7d from onset", "≥7d from onset", "2020", "2021"),
                    "False positives/False negatives"=c(paste0(p1[1]$Youden$Global$optimal.cutoff$FP[1],"/",p1[1]$Youden$Global$optimal.cutoff$FN[1]),
                                                        paste0(p2[1]$Youden$`Mexico City`$optimal.cutoff$FP[1],"/",p2[1]$Youden$`Mexico City`$optimal.cutoff$FN[1]),
                                                        paste0(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$FP[1],"/",p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$FN[1]),
@@ -386,7 +441,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                                        paste0(p5[1]$Youden$`0`$optimal.cutoff$FP[1],"/",p5[1]$Youden$`0`$optimal.cutoff$FN[1]),
                                                        paste0(p5[1]$Youden$`1`$optimal.cutoff$FP[1],"/",p5[1]$Youden$`1`$optimal.cutoff$FN[1]),
                                                        paste0(p6[1]$Youden$`0`$optimal.cutoff$FP[1],"/",p6[1]$Youden$`0`$optimal.cutoff$FN[1]),
-                                                       paste0(p6[1]$Youden$`1`$optimal.cutoff$FP[1],"/",p6[1]$Youden$`1`$optimal.cutoff$FN[1])),
+                                                       paste0(p6[1]$Youden$`1`$optimal.cutoff$FP[1],"/",p6[1]$Youden$`1`$optimal.cutoff$FN[1]),
+                                                       paste0(p7[1]$Youden$`0`$optimal.cutoff$FP[1],"/",p7[1]$Youden$`0`$optimal.cutoff$FN[1]),
+                                                       paste0(p7[1]$Youden$`1`$optimal.cutoff$FP[1],"/",p7[1]$Youden$`1`$optimal.cutoff$FN[1])),
                    "AUROC (95%CI)"=c(paste0(round(p1[1]$Youden$Global$measures.acc$AUC[1],3), " (",round(p1[1]$Youden$Global$measures.acc$AUC[2],3), "-",round(p1[1]$Youden$Global$measures.acc$AUC[3],3),")"),
                                      paste0(round(p2[1]$Youden$`Mexico City`$measures.acc$AUC[1],3), " (",round(p2[1]$Youden$`Mexico City`$measures.acc$AUC[2],3), "-",round(p2[1]$Youden$`Mexico City`$measures.acc$AUC[3],3),")"),
                                      paste0(round(p2[1]$Youden$`Rest of Mexico`$measures.acc$AUC[1],3), " (",round(p2[1]$Youden$`Rest of Mexico`$measures.acc$AUC[2],3), "-",round(p2[1]$Youden$`Rest of Mexico`$measures.acc$AUC[3],3),")"),
@@ -397,7 +454,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                      paste0(round(p5[1]$Youden$`0`$measures.acc$AUC[1],3), " (",round(p5[1]$Youden$`0`$measures.acc$AUC[2],3), "-",round(p5[1]$Youden$`0`$measures.acc$AUC[3],3),")"),
                                      paste0(round(p5[1]$Youden$`1`$measures.acc$AUC[1],3), " (",round(p5[1]$Youden$`1`$measures.acc$AUC[2],3), "-",round(p5[1]$Youden$`1`$measures.acc$AUC[3],3),")"),
                                      paste0(round(p6[1]$Youden$`0`$measures.acc$AUC[1],3), " (",round(p6[1]$Youden$`0`$measures.acc$AUC[2],3), "-",round(p6[1]$Youden$`0`$measures.acc$AUC[3],3),")"),
-                                     paste0(round(p6[1]$Youden$`1`$measures.acc$AUC[1],3), " (",round(p6[1]$Youden$`1`$measures.acc$AUC[2],3), "-",round(p6[1]$Youden$`1`$measures.acc$AUC[3],3),")")),
+                                     paste0(round(p6[1]$Youden$`1`$measures.acc$AUC[1],3), " (",round(p6[1]$Youden$`1`$measures.acc$AUC[2],3), "-",round(p6[1]$Youden$`1`$measures.acc$AUC[3],3),")"),
+                                     paste0(round(p7[1]$Youden$`0`$measures.acc$AUC[1],3), " (",round(p7[1]$Youden$`0`$measures.acc$AUC[2],3), "-",round(p7[1]$Youden$`0`$measures.acc$AUC[3],3),")"),
+                                     paste0(round(p7[1]$Youden$`1`$measures.acc$AUC[1],3), " (",round(p7[1]$Youden$`1`$measures.acc$AUC[2],3), "-",round(p7[1]$Youden$`1`$measures.acc$AUC[3],3),")")),
                    "Sensitivity (%, 95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$Se[1],3)*100, " (",round(p1[1]$Youden$Global$optimal.cutoff$Se[2],3)*100, "-",round(p1[1]$Youden$Global$optimal.cutoff$Se[3],3)*100,")"),
                                               paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Se[1],3)*100, " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Se[2],3)*100, "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Se[3],3)*100,")"),
                                               paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Se[1],3)*100, " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Se[2],3)*100, "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Se[3],3)*100,")"),
@@ -408,7 +467,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                               paste0(round(p5[1]$Youden$`0`$optimal.cutoff$Se[1],3)*100, " (",round(p5[1]$Youden$`0`$optimal.cutoff$Se[2],3)*100, "-",round(p5[1]$Youden$`0`$optimal.cutoff$Se[3],3)*100,")"),
                                               paste0(round(p5[1]$Youden$`1`$optimal.cutoff$Se[1],3)*100, " (",round(p5[1]$Youden$`1`$optimal.cutoff$Se[2],3)*100, "-",round(p5[1]$Youden$`1`$optimal.cutoff$Se[3],3)*100,")"),
                                               paste0(round(p6[1]$Youden$`0`$optimal.cutoff$Se[1],3)*100, " (",round(p6[1]$Youden$`0`$optimal.cutoff$Se[2],3)*100, "-",round(p6[1]$Youden$`0`$optimal.cutoff$Se[3],3)*100,")"),
-                                              paste0(round(p6[1]$Youden$`1`$optimal.cutoff$Se[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$Se[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$Se[3],3)*100,")")),
+                                              paste0(round(p6[1]$Youden$`1`$optimal.cutoff$Se[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$Se[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$Se[3],3)*100,")"),
+                                              paste0(round(p7[1]$Youden$`0`$optimal.cutoff$Se[1],3)*100, " (",round(p7[1]$Youden$`0`$optimal.cutoff$Se[2],3)*100, "-",round(p7[1]$Youden$`0`$optimal.cutoff$Se[3],3)*100,")"),
+                                              paste0(round(p7[1]$Youden$`1`$optimal.cutoff$Se[1],3)*100, " (",round(p7[1]$Youden$`1`$optimal.cutoff$Se[2],3)*100, "-",round(p7[1]$Youden$`1`$optimal.cutoff$Se[3],3)*100,")")),
                    "Specificity (%, 95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$Sp[1],3)*100, " (",round(p1[1]$Youden$Global$optimal.cutoff$Sp[2],3)*100, "-",round(p1[1]$Youden$Global$optimal.cutoff$Sp[3],3)*100,")"),
                                               paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Sp[1],3)*100, " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Sp[2],3)*100, "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$Sp[3],3)*100,")"),
                                               paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Sp[1],3)*100, " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Sp[2],3)*100, "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$Sp[3],3)*100,")"),
@@ -419,7 +480,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                               paste0(round(p5[1]$Youden$`0`$optimal.cutoff$Sp[1],3)*100, " (",round(p5[1]$Youden$`0`$optimal.cutoff$Sp[2],3)*100, "-",round(p5[1]$Youden$`0`$optimal.cutoff$Sp[3],3)*100,")"),
                                               paste0(round(p5[1]$Youden$`1`$optimal.cutoff$Sp[1],3)*100, " (",round(p5[1]$Youden$`1`$optimal.cutoff$Sp[2],3)*100, "-",round(p5[1]$Youden$`1`$optimal.cutoff$Sp[3],3)*100,")"),
                                               paste0(round(p6[1]$Youden$`0`$optimal.cutoff$Sp[1],3)*100, " (",round(p6[1]$Youden$`0`$optimal.cutoff$Sp[2],3)*100, "-",round(p6[1]$Youden$`0`$optimal.cutoff$Sp[3],3)*100,")"),
-                                              paste0(round(p6[1]$Youden$`1`$optimal.cutoff$Sp[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$Sp[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$Sp[3],3)*100,")")),
+                                              paste0(round(p6[1]$Youden$`1`$optimal.cutoff$Sp[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$Sp[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$Sp[3],3)*100,")"),
+                                              paste0(round(p7[1]$Youden$`0`$optimal.cutoff$Sp[1],3)*100, " (",round(p7[1]$Youden$`0`$optimal.cutoff$Sp[2],3)*100, "-",round(p7[1]$Youden$`0`$optimal.cutoff$Sp[3],3)*100,")"),
+                                              paste0(round(p7[1]$Youden$`1`$optimal.cutoff$Sp[1],3)*100, " (",round(p7[1]$Youden$`1`$optimal.cutoff$Sp[2],3)*100, "-",round(p7[1]$Youden$`1`$optimal.cutoff$Sp[3],3)*100,")")),
                    "PPV (%, 95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$PPV[1],3)*100, " (",round(p1[1]$Youden$Global$optimal.cutoff$PPV[2],3)*100, "-",round(p1[1]$Youden$Global$optimal.cutoff$PPV[3],3)*100,")"),
                                      paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$PPV[1],3)*100, " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$PPV[2],3)*100, "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$PPV[3],3)*100,")"),
                                      paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$PPV[1],3)*100, " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$PPV[2],3)*100, "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$PPV[3],3)*100,")"),
@@ -430,7 +493,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                      paste0(round(p5[1]$Youden$`0`$optimal.cutoff$PPV[1],3)*100, " (",round(p5[1]$Youden$`0`$optimal.cutoff$PPV[2],3)*100, "-",round(p5[1]$Youden$`0`$optimal.cutoff$PPV[3],3)*100,")"),
                                      paste0(round(p5[1]$Youden$`1`$optimal.cutoff$PPV[1],3)*100, " (",round(p5[1]$Youden$`1`$optimal.cutoff$PPV[2],3)*100, "-",round(p5[1]$Youden$`1`$optimal.cutoff$PPV[3],3)*100,")"),
                                      paste0(round(p6[1]$Youden$`0`$optimal.cutoff$PPV[1],3)*100, " (",round(p6[1]$Youden$`0`$optimal.cutoff$PPV[2],3)*100, "-",round(p6[1]$Youden$`0`$optimal.cutoff$PPV[3],3)*100,")"),
-                                     paste0(round(p6[1]$Youden$`1`$optimal.cutoff$PPV[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$PPV[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$PPV[3],3)*100,")")),
+                                     paste0(round(p6[1]$Youden$`1`$optimal.cutoff$PPV[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$PPV[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$PPV[3],3)*100,")"),
+                                     paste0(round(p7[1]$Youden$`0`$optimal.cutoff$PPV[1],3)*100, " (",round(p7[1]$Youden$`0`$optimal.cutoff$PPV[2],3)*100, "-",round(p7[1]$Youden$`0`$optimal.cutoff$PPV[3],3)*100,")"),
+                                     paste0(round(p7[1]$Youden$`1`$optimal.cutoff$PPV[1],3)*100, " (",round(p7[1]$Youden$`1`$optimal.cutoff$PPV[2],3)*100, "-",round(p7[1]$Youden$`1`$optimal.cutoff$PPV[3],3)*100,")")),
                    "NPV (%, 95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$NPV[1],3)*100, " (",round(p1[1]$Youden$Global$optimal.cutoff$NPV[2],3)*100, "-",round(p1[1]$Youden$Global$optimal.cutoff$NPV[3],3)*100,")"),
                                       paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$NPV[1],3)*100, " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$NPV[2],3)*100, "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$NPV[3],3)*100,")"),
                                       paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$NPV[1],3)*100, " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$NPV[2],3)*100, "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$NPV[3],3)*100,")"),
@@ -441,7 +506,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                       paste0(round(p5[1]$Youden$`0`$optimal.cutoff$NPV[1],3)*100, " (",round(p5[1]$Youden$`0`$optimal.cutoff$NPV[2],3)*100, "-",round(p5[1]$Youden$`0`$optimal.cutoff$NPV[3],3)*100,")"),
                                       paste0(round(p5[1]$Youden$`1`$optimal.cutoff$NPV[1],3)*100, " (",round(p5[1]$Youden$`1`$optimal.cutoff$NPV[2],3)*100, "-",round(p5[1]$Youden$`1`$optimal.cutoff$NPV[3],3)*100,")"),
                                       paste0(round(p6[1]$Youden$`0`$optimal.cutoff$NPV[1],3)*100, " (",round(p6[1]$Youden$`0`$optimal.cutoff$NPV[2],3)*100, "-",round(p6[1]$Youden$`0`$optimal.cutoff$NPV[3],3)*100,")"),
-                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$NPV[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$NPV[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$NPV[3],3)*100,")")),
+                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$NPV[1],3)*100, " (",round(p6[1]$Youden$`1`$optimal.cutoff$NPV[2],3)*100, "-",round(p6[1]$Youden$`1`$optimal.cutoff$NPV[3],3)*100,")"),
+                                      paste0(round(p7[1]$Youden$`0`$optimal.cutoff$NPV[1],3)*100, " (",round(p7[1]$Youden$`0`$optimal.cutoff$NPV[2],3)*100, "-",round(p7[1]$Youden$`0`$optimal.cutoff$NPV[3],3)*100,")"),
+                                      paste0(round(p7[1]$Youden$`1`$optimal.cutoff$NPV[1],3)*100, " (",round(p7[1]$Youden$`1`$optimal.cutoff$NPV[2],3)*100, "-",round(p7[1]$Youden$`1`$optimal.cutoff$NPV[3],3)*100,")")),
                    "LR (+) (95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$DLR.Positive[1],1), " (",round(p1[1]$Youden$Global$optimal.cutoff$DLR.Positive[2],1), "-",round(p1[1]$Youden$Global$optimal.cutoff$DLR.Positive[3],1),")"),
                                       paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Positive[1],1), " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Positive[2],1), "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Positive[3],1),")"),
                                       paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Positive[1],1), " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Positive[2],1), "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Positive[3],1),")"),
@@ -452,7 +519,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                       paste0(round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Positive[1],1), " (",round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Positive[2],1), "-",round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Positive[3],1),")"),
                                       paste0(round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Positive[1],1), " (",round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Positive[2],1), "-",round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Positive[3],1),")"),
                                       paste0(round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Positive[1],1), " (",round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Positive[2],1), "-",round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Positive[3],1),")"),
-                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[1],1), " (",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[2],1), "-",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[3],1),")")),
+                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[1],1), " (",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[2],1), "-",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Positive[3],1),")"),
+                                      paste0(round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Positive[1],1), " (",round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Positive[2],1), "-",round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Positive[3],1),")"),
+                                      paste0(round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Positive[1],1), " (",round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Positive[2],1), "-",round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Positive[3],1),")")),
                    "LR (-) (95%CI)"=c(paste0(round(p1[1]$Youden$Global$optimal.cutoff$DLR.Negative[1],2), " (",round(p1[1]$Youden$Global$optimal.cutoff$DLR.Negative[2],2), "-",round(p1[1]$Youden$Global$optimal.cutoff$DLR.Negative[3],2),")"),
                                       paste0(round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Negative[1],2), " (",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Negative[2],2), "-",round(p2[1]$Youden$`Mexico City`$optimal.cutoff$DLR.Negative[3],2),")"),
                                       paste0(round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Negative[1],2), " (",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Negative[2],2), "-",round(p2[1]$Youden$`Rest of Mexico`$optimal.cutoff$DLR.Negative[3],2),")"),
@@ -463,7 +532,9 @@ table1<-data.frame("Parameter"=c("Overall", "Mexico City","Rest of Mexico","Outp
                                       paste0(round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Negative[1],2), " (",round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Negative[2],2), "-",round(p5[1]$Youden$`0`$optimal.cutoff$DLR.Negative[3],2),")"),
                                       paste0(round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Negative[1],2), " (",round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Negative[2],2), "-",round(p5[1]$Youden$`1`$optimal.cutoff$DLR.Negative[3],2),")"),
                                       paste0(round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Negative[1],2), " (",round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Negative[2],2), "-",round(p6[1]$Youden$`0`$optimal.cutoff$DLR.Negative[3],2),")"),
-                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[1],2), " (",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[2],2), "-",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[3],2),")")))
+                                      paste0(round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[1],2), " (",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[2],2), "-",round(p6[1]$Youden$`1`$optimal.cutoff$DLR.Negative[3],2),")"),
+                                      paste0(round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Negative[1],2), " (",round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Negative[2],2), "-",round(p7[1]$Youden$`0`$optimal.cutoff$DLR.Negative[3],2),")"),
+                                      paste0(round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Negative[1],2), " (",round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Negative[2],2), "-",round(p7[1]$Youden$`1`$optimal.cutoff$DLR.Negative[3],2),")")))
 
 table1<-`names<-`(table1,c("Parameter","FP/FN","AUROC (95%CI)","Sensitivity (%, 95%CI)","Specificity (%, 95%CI)","PPV (%, 95%CI)","NPV (%, 95%CI)", "LR (+) (95%CI)", "LR (-) (95%CI)"))
 table1<-flextable::align(flextable(table1),align = "center",part = "all") 
@@ -477,12 +548,12 @@ covid1$antigeno<-factor(covid1$RESULTADO_ANTIGENO, labels = c("Negativo", "Posit
 covid1$pcr<-factor(covid1$RESULTADO_LAB, labels = c("Negativo", "Positivo"))
 
 #### Time-dependent ROC curves ####
-covid1<-covid %>% filter(RESULTADO_LAB<3 & !is.na(RESULTADO_ANTIGENO))
+covid1<-covid %>% filter(muestra==3 & RESULTADO_LAB<3)
 
 roc1<-timeROC(T=covid1$tiempo,
               delta=covid1$RESULTADO_LAB,marker=covid1$RESULTADO_ANTIGENO,
-              cause=1,weighting="cox",
-              other_markers=as.matrix(covid1$EDAD, covid1$SEXO),
+              cause=1,weighting="aalen",
+              other_markers=as.matrix(covid1$EDAD, covid1$SEXO, covid1$cdmx),
               times=c(1,3,7,10, 15));roc1
 
 roc2<-timeROC(T=covid1$tiempo,
@@ -566,7 +637,8 @@ covid1.2<-covid1%>%filter(false_status=="True negative" |  false_status=="False 
 
 m1<-glmer(false_negative~scale(EDAD)+(tiempo>=7)+SEXO+DIABETES+HIPERTENSION+EPOC+INMUSUPR+CARDIOVASCULAR+
             TABAQUISMO+OBESIDAD+ASMA+RENAL_CRONICA+(1|id), data=covid1.1, family="binomial")
-summ(m1, exp=T, ci=T)
+
+jtools::summ(m1, exp=T, ci=T)
 
 Fig1<-ggstatsplot::ggcoefstats(
   x = m1,
@@ -585,14 +657,16 @@ Fig1<-ggstatsplot::ggcoefstats(
   scale_x_log10(limits = c(-1, 10))+
   geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
   ggplot2::scale_y_discrete(labels = c("Age", "≥7 days Since Symptoms Onset","Male Sex", "Diabetes","Hypertension","COPD","Inmunosupression","CVD","Smoking Status",
-                                       "Obesity","Asthma","CKD"))
+                                       "Obesity","Asthma","CKD"))+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 Fig1
 
 #False Positive Predictors model
 
 m2<-glmer(false_positive~scale(EDAD)+(tiempo>=7)+SEXO+DIABETES+HIPERTENSION+EPOC+INMUSUPR+CARDIOVASCULAR+
             TABAQUISMO+OBESIDAD+ASMA+RENAL_CRONICA+(1|id), data=covid1.2, family="binomial")
-summ(m2, exp=T, ci=T)
+jtools::summ(m2, exp=T, ci=T)
 
 Fig2<-ggstatsplot::ggcoefstats(
   x = m2,
@@ -611,7 +685,9 @@ Fig2<-ggstatsplot::ggcoefstats(
   scale_x_log10(limits = c(-1, 10))+
   geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
   ggplot2::scale_y_discrete(labels = c("Age", "≥7 days Since Symptoms Onset","Male Sex", "Diabetes","Hypertension","COPD","Inmunosupression","CVD","Smoking Status",
-                                       "Obesity","Asthma","CKD"))
+                                       "Obesity","Asthma","CKD"))+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 
 Figure_1<-ggarrange(Fig1,Fig2, ncol = 2, nrow = 1, labels = c("A","B"))
 
@@ -623,9 +699,9 @@ ggsave(Figure_1,
        dpi = 300,
        limitsize = FALSE)
 
-
-
-
+covid_table<-covid%>%filter(muestra==3)
+nrow(covid_table)
+table(covid_table$RESULTADO_ANTIGENO,covid_table$RESULTADO_LAB,useNA = "always")
 
 #### Risk for confusion matrix categories ####
 
@@ -637,6 +713,7 @@ covid2$resultado_final[covid2$RESULTADO_ANTIGENO==0 & covid2$RESULTADO_LAB==1]<-
 covid2$resultado_final[covid2$RESULTADO_ANTIGENO==1 & covid2$RESULTADO_LAB==1]<-4
 covid2$resultado_final<-factor(covid2$resultado_final, labels = c("True-Negative", "False-Positive",
                                                                   "False-Negative","True-Positive"))
+
 
 
 #Modelo de Hospitalizacion
@@ -655,17 +732,20 @@ Fig1<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Hospitalization in Subjects Tested for PCR/Rapid Antigen Test in Mexico",
-  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function; HR (95% CI)",
+  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function
+HR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 10))+
   ggplot2::scale_y_discrete(labels = c("False-Positive","False-Negative","True-Positive","Private HC","Number of Comorbidities","Male Sex","Age"))+
-  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")
+  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 
 #Modelo de Intubacion
 
 m2 <-lme4::glmer(formula = INTUBADO ~ resultado_final+priv+comorb+SEXO+scale(EDAD)+(1|id),data = covid2, family = "binomial")
 summary(m2)
-summ(m2,exp=T,confint=T)
+jtools::summ(m2,exp=T,confint=T)
 
 Fig2<-ggstatsplot::ggcoefstats(
   x = m2,
@@ -678,11 +758,14 @@ Fig2<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Mechanical Ventilation Support Odds in Subjects Tested for PCR/Rapid Antigen Test in Mexico",
-  xlab = "Random Effect Logistic Regression Model; OR (95% CI)",
+  xlab = "Random Effect Logistic Regression Model
+OR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 10))+
   ggplot2::scale_y_discrete(labels = c("False-Positive","False-Negative","True-Positive","Private HC","Number of Comorbidities","Male Sex","Age"))+
-  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")
+  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 
 #Severe Outcome
 covid2$severe_outcome<-NULL;
@@ -702,11 +785,14 @@ Fig3<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Severe Outcome in Subjects Tested for PCR/Rapid Antigen Test in Mexico",
-  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function; HR (95% CI)",
+  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function
+HR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 10))+
   ggplot2::scale_y_discrete(labels = c("False-Positive","False-Negative","True-Positive","Private HC","Number of Comorbidities","Male Sex","Age"))+
-  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")
+  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 
 #Modelo de Mortalidad
 m4<-coxme::coxme(formula = Surv(tiempo, Mortalidad) ~ resultado_final+priv+comorb+SEXO+scale(EDAD)+(1|id), data = covid2)
@@ -722,14 +808,16 @@ Fig4<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Letality in Subjects Tested for PCR/Rapid Antigen Test in Mexico",
-  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function; HR (95% CI)",
+  xlab = "Cox Proportional Hazards Regression Model with Frailty penalty function
+HR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 10))+
   ggplot2::scale_y_discrete(labels = c("False-Positive","False-Negative","True-Positive","Private HC","Number of Comorbidities","Male Sex","Age"))+
-  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")
+  geom_vline(aes(xintercept = 1), size = 0.5, linetype = "dashed")+
+  theme(text = element_text(size=16),axis.text.x = element_text(hjust=1, size=16), axis.text.y = element_text(size=16), legend.text = element_text(size=16))
+
 
 Figure_2<-ggarrange(Fig1,Fig2,Fig3,Fig4, ncol = 2, nrow = 2, labels = c("A","B","C","D"))
-Figure_2
 
 ggsave(Figure_2,
        filename = "Figure3.jpg", 
@@ -758,7 +846,8 @@ Fig1<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Hospitalization in Subjects with Positive Rapid Antigen Test",
-  xlab = "Random Effects Cox Proportional Hazards Regression Model; HR (95% CI)",
+  xlab = "Random Effects Cox Proportional Hazards Regression Model
+HR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 20))+
   ggplot2::scale_y_discrete(labels = c("Age", "Male Sex", "Diabetes", "Hypertension", "COPD", "Immunosuppression","CVD","Smoking Status","Obesity","Asthma","CKD"))+
@@ -785,7 +874,8 @@ Fig2<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Mechanical Ventilation Support Odds in Subjects with Positive Rapid Antigen Test",
-  xlab = "Random Effect Logistic Regression Model; OR (95% CI)",
+  xlab = "Random Effect Logistic Regression Model
+OR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 20))+
   ggplot2::scale_y_discrete(labels = c("Age", "Male Sex", "Diabetes", "Hypertension", "COPD", "Immunosuppression","CVD","Smoking Status","Obesity","Asthma","CKD"))+
@@ -811,7 +901,8 @@ Fig3<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Severe Outcome in Subjects with Positive Rapid Antigen Test",
-  xlab = "Random Effects Cox Proportional Hazards Regression Model; HR (95% CI)",
+  xlab = "Random Effects Cox Proportional Hazards Regression Model
+HR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 20))+
   ggplot2::scale_y_discrete(labels = c("Age", "Male Sex", "Diabetes", "Hypertension", "COPD", "Immunosuppression","CVD","Smoking Status","Obesity","Asthma","CKD"))+
@@ -832,7 +923,8 @@ Fig4<-ggstatsplot::ggcoefstats(
   palette = "Dark2",
   ggtheme = ggthemes::theme_hc(),
   title = "Risk for Letality in Subjects with Positive Rapid Antigen Test",
-  xlab = "Random Effect Logistic Regression Model; OR (95% CI)",
+  xlab = "Random Effect Logistic Regression Model
+OR (95% CI)",
   ylab = "")+
   scale_x_log10(limits = c(-1, 10))+
   ggplot2::scale_y_discrete(labels = c("Age", "Male Sex", "Diabetes", "Hypertension", "COPD", "Immunosuppression","CVD","Smoking Status","Obesity","Asthma","CKD"))+
@@ -844,7 +936,7 @@ Figure_3
 ggsave(Figure_3,
        filename = "Figure4.jpg", 
        width = 55, 
-       height = 35,
+       height = 25,
        units=c("cm"),
        dpi = 300,
        limitsize = FALSE)
